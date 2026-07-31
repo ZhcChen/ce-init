@@ -1,0 +1,26 @@
+name: test
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  unix:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: 检查 Shell 语法
+        run: bash -n bin/ce-init install.sh tests/test-unix.sh
+      - name: 运行 Unix 测试
+        run: tests/test-unix.sh
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: 运行 Windows 测试
+        shell: pwsh
+        run: ./tests/ce-init.Tests.ps1

@@ -1,0 +1,138 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SOURCE="${BASH_SOURCE[0]}"
+while [[ -L "$SOURCE" ]]; do
+  SOURCE_DIR="$(cd "$(dirname "$SOURCE")" && pwd)"
+  SOURCE="$(readlink "$SOURCE")"
+  [[ "$SOURCE" == /* ]] || SOURCE="$SOURCE_DIR/$SOURCE"
+done
+SCRIPT_DIR="$(cd "$(dirname "$SOURCE")" && pwd)"
+VERSION_FILE="$SCRIPT_DIR/../VERSION"
+CHECK_ONLY=0
+TARGET_DIR=""
+CODEX_BIN="${CODEX_BIN:-$(command -v codex 2>/dev/null || true)}"
+
+usage() {
+  cat <<'EOF'
+用法：ce-init [选项] [项目目录]
+
+初始化项目的 Compound Engineering 工作流。项目目录默认为当前目录。
+
+选项：
+  --check    只检查目标项目，不修改文件
+  --help     显示帮助
+  --version  显示版本
+EOF
+}
+
+fail() {
+  echo "Error: $*" >&2
+  exit 1
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --check) CHECK_ONLY=1 ;;
+    --help|-h) usage; exit 0 ;;
+    --version)
+      [[ -f "$VERSION_FILE" ]] && cat "$VERSION_FILE" || echo "development"
+      exit 0
+      ;;
+    --*) fail "未知选项：$1" ;;
+    *)
+      [[ -z "$TARGET_DIR" ]] || fail "只能指定一个项目目录"
+      TARGET_DIR="$1"
+      ;;
+  esac
+  shift
+done
+
+TARGET_DIR="${TARGET_DIR:-$PWD}"
+
+if [[ -n "${CE_INIT_TEMPLATE:-}" ]]; then
+  TEMPLATE="$CE_INIT_TEMPLATE"
+elif [[ -f "$SCRIPT_DIR/../templates/AGENTS.md" ]]; then
+  TEMPLATE="$SCRIPT_DIR/../templates/AGENTS.md"
+else
+  TEMPLATE="${XDG_DATA_HOME:-$HOME/.local/share}/ce-init/templates/AGENTS.md"
+fi
+
+[[ -f "$TEMPLATE" ]] || fail "CE 规则模板不存在：$TEMPLATE"
+[[ -n "$CODEX_BIN" && -x "$CODEX_BIN" ]] || fail "找不到 Codex CLI，请先安装 Codex"
+
+PLUGIN_LINE="$("$CODEX_BIN" plugin list 2>/dev/null | awk '$1 == "compound-engineering@compound-engineering-plugin" && $0 ~ /installed, enabled/ {print; exit}')"
+[[ -n "$PLUGIN_LINE" ]] || fail "官方 Compound Engineering 插件未安装或未启用。请先执行：codex plugin marketplace add EveryInc/compound-engineering-plugin && codex plugin add compound-engineering@compound-engineering-plugin"
+
+PLUGIN_ROOT="$(printf '%s\n' "$PLUGIN_LINE" | awk -F '  +' '{print $NF}')"
+CONFIG_TEMPLATE="$PLUGIN_ROOT/skills/ce-setup/references/config-template.yaml"
+[[ -f "$CONFIG_TEMPLATE" ]] || fail "找不到官方 CE 配置模板：$CONFIG_TEMPLATE"
+
+if [[ "$CHECK_ONLY" -eq 1 ]]; then
+  [[ -d "$TARGET_DIR" ]] || fail "项目目录不存在：$TARGET_DIR"
+  TARGET_DIR="$(cd "$TARGET_DIR" && pwd)"
+  issues=0
+  [[ -f "$TARGET_DIR/AGENTS.md" ]] || { echo "缺失：AGENTS.md"; issues=1; }
+  for artifact_dir in brainstorms plans reviews solutions; do
+    [[ -f "$TARGET_DIR/docs/$artifact_dir/.gitkeep" ]] || { echo "缺失：docs/$artifact_dir/.gitkeep"; issues=1; }
+  done
+  if [[ ! -f "$TARGET_DIR/.compound-engineering/config.local.example.yaml" ]]; then
+    echo "缺失：.compound-engineering/config.local.example.yaml"
+    issues=1
+  elif ! cmp -s "$CONFIG_TEMPLATE" "$TARGET_DIR/.compound-engineering/config.local.example.yaml"; then
+    echo "过期：.compound-engineering/config.local.example.yaml（运行 \$ce-setup 刷新）"
+    issues=1
+  fi
+  grep -Eq '^\.compound-engineering/(config\.local\.yaml|\*\.local\.yaml)$' "$TARGET_DIR/.gitignore" 2>/dev/null || { echo "缺失：.gitignore 中的 CE 本地配置规则"; issues=1; }
+  [[ "$issues" -eq 0 ]] && echo "CE 初始化状态正常：$TARGET_DIR"
+  exit "$issues"
+fi
+
+mkdir -p "$TARGET_DIR"
+TARGET_DIR="$(cd "$TARGET_DIR" && pwd)"
+AGENTS_FILE="$TARGET_DIR/AGENTS.md"
+CE_FILE="$TARGET_DIR/CE_AGENTS.md"
+CONFIG_DIR="$TARGET_DIR/.compound-engineering"
+CONFIG_EXAMPLE="$CONFIG_DIR/config.local.example.yaml"
+GITIGNORE="$TARGET_DIR/.gitignore"
+
+mkdir -p \
+  "$TARGET_DIR/docs/brainstorms" \
+  "$TARGET_DIR/docs/plans" \
+  "$TARGET_DIR/docs/reviews" \
+  "$TARGET_DIR/docs/solutions" \
+  "$CONFIG_DIR"
+
+for artifact_dir in brainstorms plans reviews solutions; do
+  touch "$TARGET_DIR/docs/$artifact_dir/.gitkeep"
+done
+
+if [[ ! -e "$CONFIG_EXAMPLE" ]]; then
+  cp "$CONFIG_TEMPLATE" "$CONFIG_EXAMPLE"
+  echo "已创建：.compound-engineering/config.local.example.yaml"
+elif ! cmp -s "$CONFIG_TEMPLATE" "$CONFIG_EXAMPLE"; then
+  echo "已保留现有 CE 配置示例；请运行 \$ce-setup 检查并刷新"
+fi
+
+if ! grep -Eq '^\.compound-engineering/(config\.local\.yaml|\*\.local\.yaml)$' "$GITIGNORE" 2>/dev/null; then
+  if [[ -s "$GITIGNORE" ]] && [[ "$(tail -c 1 "$GITIGNORE" | wc -l | tr -d ' ')" == "0" ]]; then
+    printf '\n' >> "$GITIGNORE"
+  fi
+  printf '.compound-engineering/config.local.yaml\n' >> "$GITIGNORE"
+  echo "已更新：.gitignore"
+fi
+
+if [[ ! -e "$AGENTS_FILE" ]]; then
+  cp "$TEMPLATE" "$AGENTS_FILE"
+  echo "已从 CE 模板创建 AGENTS.md：$TARGET_DIR"
+elif [[ ! -e "$CE_FILE" ]]; then
+  cp "$TEMPLATE" "$CE_FILE"
+  echo "已保留现有 AGENTS.md，并创建待人工合并的 CE_AGENTS.md"
+elif cmp -s "$TEMPLATE" "$CE_FILE"; then
+  echo "已保留现有 AGENTS.md；CE_AGENTS.md 已是当前版本"
+else
+  echo "已保留现有 AGENTS.md 和 CE_AGENTS.md；请从以下模板人工合并：$TEMPLATE"
+fi
+
+echo "已创建 CE 产物目录及 .gitkeep：$TARGET_DIR/docs"
+echo "下一步：审阅生成文件，然后在 Codex 中运行 \$ce-setup"
