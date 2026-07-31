@@ -18,6 +18,7 @@ try {
     $FakeCodex = @"
 @echo off
 echo compound-engineering@compound-engineering-plugin  installed, enabled  3.21.0  $PluginRoot
+exit /b 0
 "@
     [IO.File]::WriteAllText((Join-Path $FakeBin 'codex.cmd'), $FakeCodex, [Text.ASCIIEncoding]::new())
     $env:CODEX_BIN = Join-Path $FakeBin 'codex.cmd'
@@ -33,6 +34,19 @@ echo compound-engineering@compound-engineering-plugin  installed, enabled  3.21.
     $Errors = $null
     [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $Root 'install.ps1'), [ref]$Tokens, [ref]$Errors) | Out-Null
     Assert-True ($Errors.Count -eq 0) 'install.ps1 存在语法错误'
+
+    if ($env:GITHUB_SHA -and $env:GITHUB_REPOSITORY) {
+        $InstallRoot = Join-Path $TestRoot 'installed'
+        $env:CE_INIT_BASE_URL = "https://raw.githubusercontent.com/$env:GITHUB_REPOSITORY/$env:GITHUB_SHA"
+        $env:CE_INIT_INSTALL_ROOT = $InstallRoot
+        $env:CE_INIT_BIN_DIR = Join-Path $InstallRoot 'bin'
+        $env:CE_INIT_SKIP_PATH_UPDATE = '1'
+        & (Join-Path $Root 'install.ps1') | Out-Null
+        Assert-True (Test-Path (Join-Path $InstallRoot 'bin\ce-init.cmd')) 'Windows 安装器未创建 ce-init.cmd'
+        Assert-True (Test-Path (Join-Path $InstallRoot 'templates\AGENTS.md')) 'Windows 安装器未安装模板'
+        $InstalledVersion = & (Join-Path $InstallRoot 'bin\ce-init.ps1') --version
+        Assert-True ($InstalledVersion -eq (Get-Content (Join-Path $Root 'VERSION') -Raw).Trim()) 'Windows 安装版本不匹配'
+    }
 
     Write-Output 'PASS: Windows ce-init tests'
 } finally {

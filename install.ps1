@@ -25,14 +25,16 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0ce-init.ps1" %*
 '@
 [IO.File]::WriteAllText((Join-Path $BinDirectory 'ce-init.cmd'), $Wrapper, [Text.ASCIIEncoding]::new())
 
-$UserPath = [Environment]::GetEnvironmentVariable('Path', 'User')
-$PathEntries = @($UserPath -split ';' | Where-Object { $_ })
-if ($PathEntries -notcontains $BinDirectory) {
-    $NewUserPath = (@($PathEntries) + $BinDirectory) -join ';'
-    [Environment]::SetEnvironmentVariable('Path', $NewUserPath, 'User')
-}
-if (($env:Path -split ';') -notcontains $BinDirectory) {
-    $env:Path = "$BinDirectory;$env:Path"
+if ($env:CE_INIT_SKIP_PATH_UPDATE -ne '1') {
+    $UserPath = [Environment]::GetEnvironmentVariable('Path', 'User')
+    $PathEntries = @($UserPath -split ';' | Where-Object { $_ })
+    if ($PathEntries -notcontains $BinDirectory) {
+        $NewUserPath = (@($PathEntries) + $BinDirectory) -join ';'
+        [Environment]::SetEnvironmentVariable('Path', $NewUserPath, 'User')
+    }
+    if (($env:Path -split ';') -notcontains $BinDirectory) {
+        $env:Path = "$BinDirectory;$env:Path"
+    }
 }
 
 Write-Output "ce-init installed at: $InstallRoot"
