@@ -34,4 +34,4 @@ date: 2026-07-31
 
 - Unix 与 PowerShell 已实现全量预检后显式清理；普通初始化不修改 Codex Home，清理命令不依赖 Codex CLI 或插件状态。
 - Unix 测试覆盖默认/自定义 Codex Home、profile、LF、CRLF、无末尾换行、空 Home、残缺标记拒绝与跨文件无部分修改。
-- `bash -n bin/ce-init install.sh tests/test-unix.sh`、`tests/test-unix.sh` 和真实项目 `--check` 通过；本机没有 PowerShell，Windows 行为由 `windows-latest` CI 的 `tests/ce-init.Tests.ps1` 验证。
+- `bash -n bin/ce-init install.sh tests/test-unix.sh`、`tests/test-unix.sh` 和真实项目 `--check` 通过；本机没有 PowerShell，GitHub Actions [run 30743958065](https://github.com/ZhcChen/ce-init/actions/runs/30743958065) 的 Ubuntu 与 Windows jobs 均通过，其中 Windows 执行 `tests/ce-init.Tests.ps1`。
