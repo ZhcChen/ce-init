@@ -168,7 +168,7 @@ if ($CheckOnly) {
     }
     $GitIgnore = Join-Path $TargetDirectory '.gitignore'
     $GitIgnoreContent = if (Test-Path $GitIgnore) { Get-Content $GitIgnore -Raw } else { '' }
-    if ($GitIgnoreContent -notmatch '(?m)^\.compound-engineering/(config\.local\.yaml|\*\.local\.yaml)$') {
+    if ($GitIgnoreContent -notmatch '(?m)^\.compound-engineering/(config\.local\.yaml|\*\.local\.yaml)\r?$') {
         Write-Output 'Missing: CE local config rule in .gitignore'
         $Issues = 1
     }
@@ -215,7 +215,7 @@ if (-not (Test-Path $ConfigExample)) {
 
 $GitIgnore = Join-Path $TargetDirectory '.gitignore'
 $GitIgnoreContent = if (Test-Path $GitIgnore) { Get-Content $GitIgnore -Raw } else { '' }
-if ($GitIgnoreContent -notmatch '(?m)^\.compound-engineering/(config\.local\.yaml|\*\.local\.yaml)$') {
+if ($GitIgnoreContent -notmatch '(?m)^\.compound-engineering/(config\.local\.yaml|\*\.local\.yaml)\r?$') {
     $Prefix = if ($GitIgnoreContent.Length -gt 0 -and -not $GitIgnoreContent.EndsWith("`n")) { "`r`n" } else { '' }
     [IO.File]::AppendAllText($GitIgnore, "$Prefix.compound-engineering/config.local.yaml`r`n", [Text.UTF8Encoding]::new($false))
     Write-Output 'Updated: .gitignore'
