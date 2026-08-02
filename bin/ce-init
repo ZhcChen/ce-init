@@ -112,7 +112,12 @@ cleanup_legacy_tool_maps() {
       fi
       [[ "$read_status" -eq 0 ]] || break
     done < "$file"
-    if ! mode="$(stat -f '%Lp' "$file" 2>/dev/null || stat -c '%a' "$file")" ||
+    if [[ "$(uname -s)" == "Darwin" ]]; then
+      mode="$(stat -f '%Lp' "$file")"
+    else
+      mode="$(stat -c '%a' "$file")"
+    fi
+    if [[ -z "$mode" ]] ||
        ! chmod "$mode" "$temporary" ||
        ! mv "$temporary" "$file"; then
       rm -f "$temporary"

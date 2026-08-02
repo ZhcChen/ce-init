@@ -30,8 +30,8 @@ exit /b 0
     foreach ($Directory in @('brainstorms', 'plans', 'reviews', 'solutions')) {
         Assert-True (Test-Path (Join-Path $Target "docs\$Directory\.gitkeep")) "$Directory/.gitkeep 不存在"
     }
-    & $PowerShellExe -NoProfile -File $CeInitScript --check $Target | Out-Null
-    Assert-True ($LASTEXITCODE -eq 0) '健康项目的 --check 应成功'
+    $HealthyCheckOutput = @(& $PowerShellExe -NoProfile -File $CeInitScript --check $Target 2>&1)
+    Assert-True ($LASTEXITCODE -eq 0) "健康项目的 --check 应成功：$($HealthyCheckOutput -join ' | ')"
 
     $CodexHome = Join-Path $TestRoot 'codex-home'
     $DefaultAgents = Join-Path $CodexHome 'AGENTS.md'
