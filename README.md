@@ -22,7 +22,8 @@
 | 保护现有规则 | 不覆盖已有 `AGENTS.md` 或定制过的 `CE_AGENTS.md` |
 | 官方配置同步 | 从当前启用的 CE 插件复制最新 repo-local 配置示例 |
 | 可重复执行 | 重复初始化不会追加重复规则或破坏已有内容 |
-| 健康检查 | `ce-init --check` 只检查项目，不修改文件 |
+| 健康检查 | `ce-init --check` 检查项目和废弃的 CE tool map，不修改文件 |
+| 旧版迁移 | 显式清理原生 Codex 插件已废弃的旧 tool map，不添加替代映射 |
 | 可固定版本 | 安装器支持通过 Git ref 固定发布版本 |
 
 ## 支持平台
@@ -127,6 +128,26 @@ ce-init /path/to/project
 ce-init --check /path/to/project
 ```
 
+清理旧版 Bun `convert` / `install --to codex` 写入的废弃 tool map：
+
+```bash
+ce-init --cleanup-legacy-tool-map
+```
+
+```powershell
+ce-init --cleanup-legacy-tool-map
+```
+
+该迁移命令检查当前 `CODEX_HOME/AGENTS.md`、默认 `~/.codex/AGENTS.md` 以及相应 `profiles/*/AGENTS.md`。它只删除以下完整配对标记及其内部内容：
+
+```html
+<!-- BEGIN COMPOUND CODEX TOOL MAP -->
+...
+<!-- END COMPOUND CODEX TOOL MAP -->
+```
+
+标记残缺时命令会失败且不修改对应文件。普通 `ce-init` 不会清理或改写 Codex Home；`--check` 发现遗留时返回非零并提示显式迁移命令。原生 Compound Engineering 插件由 skill 自身声明 Codex 工具，因此不会生成替代 tool map。
+
 查看帮助和版本：
 
 ```bash
@@ -161,12 +182,14 @@ project/
 - 复制官方 `.compound-engineering/config.local.example.yaml`。
 - 确保 `.compound-engineering/config.local.yaml` 被 `.gitignore` 忽略。
 - 保护已有 `AGENTS.md`、`CE_AGENTS.md` 和 repo-local 配置。
+- 在 `--check` 中报告 Codex Home 内废弃或残缺的 CE tool map。
 
 `ce-init` 不会：
 
 - 自动启用 `$lfg`、worktree、功能分支、PR、自动合并或跨模型执行。
 - 覆盖项目自己的部署、migration、外部系统、前端或 Git 规则。
 - 自动安装、修改或复制官方 CE skills。
+- 在普通项目初始化中修改 Codex Home 或自动清理旧版 tool map。
 
 ## 开发与测试
 

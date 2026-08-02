@@ -13,18 +13,94 @@ Initialize a project with the Compound Engineering workflow.
 The project directory defaults to the current directory.
 
 Options:
-  --check    Check the target project without modifying files
-  --help     Show help
-  --version  Show version
+  --check                    Check the project and legacy CE tool map without modifying files
+  --cleanup-legacy-tool-map  Explicitly remove the obsolete CE tool map from Codex Home
+  --help                     Show help
+  --version                  Show version
 '@
 }
 
 $CheckOnly = $false
+$CleanupLegacyToolMap = $false
 $TargetDirectory = $null
+$ToolMapBegin = '<!-- BEGIN COMPOUND CODEX TOOL MAP -->'
+$ToolMapEnd = '<!-- END COMPOUND CODEX TOOL MAP -->'
+
+function Get-CodexAgentsFiles {
+    $DefaultCodexHome = Join-Path $HOME '.codex'
+    $ActiveCodexHome = if ($env:CODEX_HOME) { $env:CODEX_HOME } else { $DefaultCodexHome }
+    $Candidates = [System.Collections.Generic.List[string]]::new()
+    $Candidates.Add((Join-Path $ActiveCodexHome 'AGENTS.md'))
+    $Candidates.Add((Join-Path $DefaultCodexHome 'AGENTS.md'))
+    foreach ($ProfilesRoot in @((Join-Path $ActiveCodexHome 'profiles'), (Join-Path $DefaultCodexHome 'profiles'))) {
+        if (Test-Path $ProfilesRoot -PathType Container) {
+            Get-ChildItem $ProfilesRoot -Directory | ForEach-Object {
+                $Candidates.Add((Join-Path $_.FullName 'AGENTS.md'))
+            }
+        }
+    }
+    $Seen = @{}
+    foreach ($Candidate in $Candidates) {
+        $FullPath = [IO.Path]::GetFullPath($Candidate)
+        $Key = $FullPath.ToLowerInvariant()
+        if (-not $Seen.ContainsKey($Key) -and (Test-Path $FullPath -PathType Leaf)) {
+            $Seen[$Key] = $true
+            $FullPath
+        }
+    }
+}
+
+function Get-LegacyToolMapState([string]$Path) {
+    $Inside = $false
+    $Found = $false
+    $Invalid = $false
+    foreach ($Line in [IO.File]::ReadAllLines($Path)) {
+        if ($Line -ceq $ToolMapBegin) {
+            if ($Inside) { $Invalid = $true }
+            $Inside = $true
+            $Found = $true
+        } elseif ($Line -ceq $ToolMapEnd) {
+            if (-not $Inside) { $Invalid = $true }
+            $Inside = $false
+        }
+    }
+    if ($Invalid -or $Inside) { return 'invalid' }
+    if ($Found) { return 'legacy' }
+    return 'none'
+}
+
+function Remove-LegacyToolMaps {
+    $Cleaned = $false
+    $AgentsFiles = @(Get-CodexAgentsFiles)
+    foreach ($AgentsFile in $AgentsFiles) {
+        $State = Get-LegacyToolMapState $AgentsFile
+        if ($State -eq 'invalid') { Fail "Legacy CE tool map markers are incomplete; file was not changed: $AgentsFile" }
+        if ($State -eq 'legacy' -and ((Get-Item $AgentsFile).Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+            Fail "Legacy CE tool map is in a symbolic link; file was not changed: $AgentsFile"
+        }
+    }
+    foreach ($AgentsFile in $AgentsFiles) {
+        if ((Get-LegacyToolMapState $AgentsFile) -eq 'none') { continue }
+        $Content = [IO.File]::ReadAllText($AgentsFile)
+        $Pattern = '(?ms)^' + [Regex]::Escape($ToolMapBegin) + '\r?\n.*?^' + [Regex]::Escape($ToolMapEnd) + '(?:\r?\n|$)'
+        $Updated = [Regex]::Replace($Content, $Pattern, '')
+        $Temporary = "$AgentsFile.tmp.$PID.$([Guid]::NewGuid().ToString('N'))"
+        try {
+            [IO.File]::WriteAllText($Temporary, $Updated, [Text.UTF8Encoding]::new($false))
+            Move-Item -Force $Temporary $AgentsFile
+        } finally {
+            Remove-Item -Force $Temporary -ErrorAction SilentlyContinue
+        }
+        Write-Output "Removed legacy CE tool map: $AgentsFile"
+        $Cleaned = $true
+    }
+    if (-not $Cleaned) { Write-Output 'No legacy CE tool map found' }
+}
 
 foreach ($Argument in $args) {
     switch ($Argument) {
         '--check' { $CheckOnly = $true; continue }
+        '--cleanup-legacy-tool-map' { $CleanupLegacyToolMap = $true; continue }
         '--help' { Show-Usage; exit 0 }
         '-h' { Show-Usage; exit 0 }
         '--version' {
@@ -38,6 +114,13 @@ foreach ($Argument in $args) {
             $TargetDirectory = $Argument
         }
     }
+}
+
+if ($CleanupLegacyToolMap) {
+    if ($CheckOnly) { Fail '--check and --cleanup-legacy-tool-map cannot be used together' }
+    if ($null -ne $TargetDirectory) { Fail '--cleanup-legacy-tool-map does not accept a project directory' }
+    Remove-LegacyToolMaps
+    exit 0
 }
 
 if ($null -eq $TargetDirectory) { $TargetDirectory = (Get-Location).Path }
@@ -88,6 +171,16 @@ if ($CheckOnly) {
     if ($GitIgnoreContent -notmatch '(?m)^\.compound-engineering/(config\.local\.yaml|\*\.local\.yaml)$') {
         Write-Output 'Missing: CE local config rule in .gitignore'
         $Issues = 1
+    }
+    foreach ($AgentsFile in Get-CodexAgentsFiles) {
+        $State = Get-LegacyToolMapState $AgentsFile
+        if ($State -eq 'legacy') {
+            Write-Output "Obsolete: legacy CE tool map: $AgentsFile (run ce-init --cleanup-legacy-tool-map)"
+            $Issues = 1
+        } elseif ($State -eq 'invalid') {
+            Write-Output "Error: incomplete legacy CE tool map markers: $AgentsFile"
+            $Issues = 1
+        }
     }
     if ($Issues -eq 0) { Write-Output "CE initialization is healthy: $TargetDirectory" }
     exit $Issues
